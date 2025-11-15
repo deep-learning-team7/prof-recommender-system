@@ -1,0 +1,16 @@
+# -----------------------------
+# AI Lab Recommender Project
+# -----------------------------
+
+# Data Handling
+datasets         # Hugging Face arXiv 데이터 로드용
+pandas
+numpy
+
+# Core AI / ML
+sentence-transformers   # SBERT 임베딩용
+faiss-cpu               # 벡터 검색 엔진 (코랩용 CPU 버전)
+scikit-learn            # 토픽 모델링(LDA/NMF) 등
+
+# Frontend (Demo)
+streamlit               # 결과 시각화 UI용
