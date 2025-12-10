@@ -44,6 +44,12 @@ export default function InputPage() {
       return;
     }
 
+    const controller = new AbortController();
+    // 300,000ms는 5분입니다. (3분 소요되므로 충분히 넉넉합니다.)
+    const timeoutDuration = 300000; 
+    const timeoutId = setTimeout(() => controller.abort(), timeoutDuration);
+
+    // API 요청에 필요한 카테고리 코드 변환
     const categoryCodeToSend = getCategoryCode(selectedLabel);
 
     setIsLoading(true);
@@ -54,36 +60,48 @@ export default function InputPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          // FastAPI의 UserRequest 모델에 정확한 카테고리 코드(cs.CV 등) 전송
           category: categoryCodeToSend, 
           cv_text: cvText,
         }),
+        signal: controller.signal, // AbortController 신호를 fetch에 전달
       });
 
+      // 요청 성공 시 타임아웃 타이머 해제 (필수)
+      clearTimeout(timeoutId); 
+      
       if (!response.ok) {
-        // HTTP 상태 코드가 200 범위가 아니면 오류 처리
+        // 서버에서 200이 아닌 상태 코드(4xx, 5xx)를 반환했을 때
         const errorBody = await response.text();
         throw new Error(`API 통신 오류 (${response.status}): ${errorBody.substring(0, 100)}...`);
       }
 
       const data = await response.json();
       
-      console.log("🔥 API로부터 받은 최종 추천 결과:", data.results);
-      
-      // 성공 시, 결과 데이터를 쿼리 파라미터로 넘겨주며 /result 페이지로 이동합니다.
-      // 실제 데이터가 크면 로컬 스토리지에 저장 후 이동하는 것이 좋습니다.
-      const resultDataString = encodeURIComponent(JSON.stringify(data.results));
+      // 최종 결과 데이터를 로컬 스토리지에 저장 (URL 길이 제한 회피)
+      const resultDataString = JSON.stringify(data.results);
+      localStorage.setItem('recommendationResults', resultDataString); 
 
-      // [핵심] 결과 페이지로 이동
-      router.push(`/result?data=${resultDataString}`);
+      console.log("🔥 API 호출 성공, 결과 로컬 스토리지에 저장.");
+
+      // 결과 페이지로 이동 (로컬 스토리지를 읽어옴)
+      router.push(`/result`);
       
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : "알 수 없는 오류 발생";
-      setError(errorMessage);
+      // ⭐ [수정 핵심]: 타임아웃 오류(AbortError)와 일반 오류 분리 처리
+      if (err && typeof err === 'object' && 'name' in err && err.name === 'AbortError') {
+        // fetch가 타임아웃으로 인해 중단되었을 때의 처리
+        setError(`⏰ 분석 시간이 ${timeoutDuration / 60000}분을 초과하여 연결이 종료되었습니다. 코랩 런타임을 확인하세요.`);
+      } else {
+        // 일반 네트워크 오류, JSON 파싱 오류, 4xx/5xx 상태 코드 오류 등
+        const errorMessage = err instanceof Error ? err.message : "알 수 없는 오류 발생";
+        setError(errorMessage);
+      }
+      
     } finally {
+      // 로딩 상태 해제
       setIsLoading(false);
     }
-  };
+};
 
   return (
     <div className="min-h-screen bg-gray-50 py-16 px-4">
