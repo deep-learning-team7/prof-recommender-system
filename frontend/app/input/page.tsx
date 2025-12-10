@@ -1,12 +1,10 @@
 'use client'; 
 
 import { useState } from "react";
-// Next.js 라우팅을 위해 useRouter를 가져옵니다.
 import { useRouter } from 'next/navigation'; 
-import Link from "next/link"; // 페이지 이동을 위해 Link를 유지합니다.
+// import Link from "next/link";
 
-// 환경 변수에서 API URL을 가져옵니다.
-// .env.local의 NEXT_PUBLIC_API_URL 값을 사용합니다.
+// 환경 변수에서 API URL을 가져옴
 const API_ENDPOINT = process.env.NEXT_PUBLIC_API_URL;
 
 // 관심사 태그 더미 데이터 (백엔드 카테고리명과 일치시켜야 함)
@@ -19,31 +17,48 @@ const categories = [
 ];
 
 // 라벨(Label)을 실제 백엔드 요청에 필요한 카테고리 코드(Name)로 변환하는 함수
-const getCategoryCode = (label: string) => {
+const getCategoryCode = (label: string | null): string | null => { // label이 null일 수 있으므로 타입 변경
+  // null이거나 카테고리를 찾을 수 없을 경우 빈 문자열 또는 에러 처리를 위해 null 반환도 고려할 수 있음
+  if (!label) return null; 
+  
   const found = categories.find(cat => cat.label === label);
-  return found ? found.name : categories[0].name; // 없으면 기본값으로 "cs.CV" 사용
+  return found ? found.name : null;
 }
 
 export default function InputPage() {
   const router = useRouter(); // 라우터 훅 사용을 선언
 
   // 상태 관리: UI에 보이는 'label'을 저장합니다.
-  const [selectedLabel, setSelectedLabel] = useState(categories[0].label);
+  const [selectedLabel, setSelectedLabel] = useState<string | null>(null);
   const [cvText, setCvText] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // API 요청 핸들러
   const handleAnalyze = async () => {
+
+    console.log("API 호출 시작. Endpoint:", API_ENDPOINT);
+
     if (!API_ENDPOINT) {
       setError("❌ 환경 변수 (NEXT_PUBLIC_API_URL)가 설정되지 않았습니다.");
       return;
     }
+
+    if (!selectedLabel) {
+        alert("관심 연구 분야를 먼저 선택해주세요.");
+        return;
+    }
+
     if (!cvText.trim()) {
       alert("이력서 내용을 입력해주세요.");
       return;
     }
 
+    const controller = new AbortController();
+    const timeoutDuration = 300000; 
+    const timeoutId = setTimeout(() => controller.abort(), timeoutDuration);
+
+    // API 요청에 필요한 카테고리 코드 변환
     const categoryCodeToSend = getCategoryCode(selectedLabel);
 
     setIsLoading(true);
@@ -54,36 +69,46 @@ export default function InputPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          // FastAPI의 UserRequest 모델에 정확한 카테고리 코드(cs.CV 등) 전송
           category: categoryCodeToSend, 
           cv_text: cvText,
         }),
+        signal: controller.signal, // AbortController 신호를 fetch에 전달
       });
 
+      // 요청 성공 시 타임아웃 타이머 해제 (필수)
+      clearTimeout(timeoutId); 
+      
       if (!response.ok) {
-        // HTTP 상태 코드가 200 범위가 아니면 오류 처리
+        // 서버에서 200이 아닌 상태 코드(4xx, 5xx)를 반환했을 때
         const errorBody = await response.text();
         throw new Error(`API 통신 오류 (${response.status}): ${errorBody.substring(0, 100)}...`);
       }
 
       const data = await response.json();
       
-      console.log("🔥 API로부터 받은 최종 추천 결과:", data.results);
-      
-      // 성공 시, 결과 데이터를 쿼리 파라미터로 넘겨주며 /result 페이지로 이동합니다.
-      // 실제 데이터가 크면 로컬 스토리지에 저장 후 이동하는 것이 좋습니다.
-      const resultDataString = encodeURIComponent(JSON.stringify(data.results));
+      const resultDataString = JSON.stringify(data.results);
+      localStorage.setItem('recommendationResults', resultDataString); 
 
-      // [핵심] 결과 페이지로 이동
-      router.push(`/result?data=${resultDataString}`);
+      console.log("🔥 API 호출 성공, 결과 로컬 스토리지에 저장.");
+
+      router.push(`/result`);
       
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : "알 수 없는 오류 발생";
-      setError(errorMessage);
+      // 타임아웃 오류(AbortError)와 일반 오류 분리 처리
+      if (err && typeof err === 'object' && 'name' in err && err.name === 'AbortError') {
+        // fetch가 타임아웃으로 인해 중단되었을 때의 처리
+        setError(`분석 시간이 ${timeoutDuration / 60000}분을 초과하여 연결이 종료되었습니다. 코랩 런타임을 확인하세요.`);
+      } else {
+        // 일반 네트워크 오류, JSON 파싱 오류, 4xx/5xx 상태 코드 오류 등
+        const errorMessage = err instanceof Error ? err.message : "알 수 없는 오류 발생";
+        setError(errorMessage);
+      }
+      
     } finally {
+      // 로딩 상태 해제
       setIsLoading(false);
     }
-  };
+};
 
   return (
     <div className="min-h-screen bg-gray-50 py-16 px-4">
@@ -119,17 +144,21 @@ export default function InputPage() {
           <textarea 
             className="w-full h-64 p-6 bg-gray-100 rounded-3xl border-0 focus:ring-2 focus:ring-gray-300 resize-none text-gray-700 text-lg outline-none mb-8"
             placeholder="여기에 이력서 내용을 붙여넣거나 간단히 작성해주세요..."
+            value={cvText}
+            onChange={(e) => setCvText(e.target.value)}
           ></textarea>
         </section>
         
         {/* 분석 시작 버튼 */}
         <div className="text-center">
-          {/* Link를 클릭하면 Next.js가 자동으로 loading.tsx를 보여줍니다 */}
-          <Link href="/result">
-            <button className="bg-black text-white text-xl font-bold px-12 py-4 rounded-full hover:bg-gray-800 transition-all w-full md:w-auto">
-              AI 분석 및 추천받기
-            </button>
-          </Link>
+          {/* Link 제거하고, onClick 이벤트로 handleAnalyze 연결 */}
+          <button 
+            onClick={handleAnalyze} // handleAnalyze 함수를 직접 실행
+            className="bg-black text-white text-xl font-bold px-12 py-4 rounded-full hover:bg-gray-800 transition-all w-full md:w-auto"
+            disabled={isLoading} // 로딩 중에는 버튼 비활성화
+          >
+            {isLoading ? '분석 중...' : 'AI 분석 및 추천받기'}
+          </button>
         </div>
       </div>
     </div>
