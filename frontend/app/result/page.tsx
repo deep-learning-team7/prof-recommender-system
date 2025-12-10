@@ -16,6 +16,8 @@ interface Tag {
 }
 
 const KEYWORD_COLORS: { [key: string]: string } = {
+
+    // CV
     'Autonomous Driving': 'bg-teal-100 text-teal-800',
     'Object Detection': 'bg-purple-100 text-purple-800',
     'YOLO': 'bg-red-100 text-red-800',
@@ -23,13 +25,49 @@ const KEYWORD_COLORS: { [key: string]: string } = {
     'NeRF': 'bg-green-100 text-green-800',
     'LiDAR': 'bg-orange-100 text-orange-800',
     '3D Reconstruction': 'bg-pink-100 text-pink-800',
+
+    // CL
+    'Large Language Model': 'bg-indigo-100 text-indigo-800', // LLM
+    'Text Generation': 'bg-yellow-100 text-yellow-800',
+    'Sentiment Analysis': 'bg-lime-100 text-lime-800',
+    'Neural Machine Translation': 'bg-red-100 text-red-800',
+    'Transformer': 'bg-amber-100 text-amber-800',
+    'Information Retrieval': 'bg-gray-100 text-gray-800',
+    'Knowledge Graph': 'bg-rose-100 text-rose-800',
+
+    // LG, AI, ML
+    'Reinforcement Learning': 'bg-emerald-100 text-emerald-800', // RL
+    'Generative Adversarial Network': 'bg-sky-100 text-sky-800', // GAN
+    'Federated Learning': 'bg-violet-100 text-violet-800',
+    'Causal Inference': 'bg-zinc-100 text-zinc-800',
+    'Time Series Analysis': 'bg-neutral-100 text-neutral-800',
+    'Deep Learning Theory': 'bg-stone-100 text-stone-800',
+    'Transfer Learning': 'bg-slate-100 text-slate-800',
+    'Graph Neural Network': 'bg-orange-100 text-orange-800', // GNN
+
+    'Instrumental Variable': 'bg-violet-100 text-violet-800', // IV Regression
+    'Nonparametric Regression': 'bg-fuchsia-100 text-fuchsia-800',
+    'Feature Learning': 'bg-amber-100 text-amber-800',
+    'Confounders': 'bg-cyan-100 text-cyan-800', // Hidden confounders
 };
 
 const extractTags = (summary: string): Tag[] => {
     // 7가지 키워드 목록
     const keywords = [
         "Autonomous Driving", "Object Detection", "YOLO", "ResNet", 
-        "NeRF", "LiDAR", "3D Reconstruction"
+        "NeRF", "LiDAR", "3D Reconstruction",
+
+        "Large Language Model", "Text Generation", "Sentiment Analysis",
+        "Neural Machine Translation", "Transformer", "Information Retrieval",
+        "Knowledge Graph",
+
+        "Reinforcement Learning", "Generative Adversarial Network", "Federated Learning",
+        "Causal Inference", "Time Series Analysis", "Deep Learning Theory",
+        "Transfer Learning", "Graph Neural Network",
+ 
+        "Instrumental Variable", 
+        "Nonparametric Regression",
+        "Feature Learning", 
     ];
     const extractedTags: Tag[] = [];
 
@@ -55,12 +93,13 @@ const extractTags = (summary: string): Tag[] => {
 export default function ResultPage() {
   const searchParams = useSearchParams();
   
-  // ⭐ [수정 핵심 1]: IIFE와 window 검사를 조합하여 초기값 설정
-  // Next.js 환경에서 CSR/SSR 불일치를 피하기 위해, 클라이언트 환경에서만 localStorage를 읽습니다.
+  // ⭐ [수정 핵심]: useEffect를 제거하고, IIFE로 초기화 로직을 이동합니다.
   const initialData = (() => {
     // 서버 환경(SSR)에서는 무조건 null을 반환하여 Hydration Mismatch를 피합니다.
     if (typeof window === 'undefined') {
-        return { results: null, error: null }; 
+        // 서버 렌더링 시에는 결과를 알 수 없으므로 로딩 상태로 만듭니다.
+        // isInitialSSR 플래그를 사용하여 서버 렌더링인지 클라이언트 렌더링인지 구분합니다.
+        return { results: null, error: null, isInitialSSR: true }; 
     }
     
     // 클라이언트 환경(CSR)에서만 localStorage에 접근합니다.
@@ -68,15 +107,15 @@ export default function ResultPage() {
     localStorage.removeItem('recommendationResults'); 
     
     if (!storedData) {
-      return { results: null, error: "분석 결과 데이터가 없습니다. 다시 분석을 시작해주세요." };
+      return { results: null, error: "분석 결과 데이터가 없습니다. 다시 분석을 시작해주세요.", isInitialSSR: false };
     }
     
     try {
       const parsedResults = JSON.parse(storedData) as ProfessorResult[]; 
-      return { results: parsedResults, error: null };
+      return { results: parsedResults, error: null, isInitialSSR: false };
     } catch (error) {
       console.error("로컬 스토리지 데이터 파싱 오류:", error);
-      return { results: null, error: "저장된 분석 결과 데이터 파싱 중 오류가 발생했습니다." };
+      return { results: null, error: "저장된 분석 결과 데이터 파싱 중 오류가 발생했습니다.", isInitialSSR: false };
     }
   })();
   
@@ -84,26 +123,18 @@ export default function ResultPage() {
   const [results] = useState<ProfessorResult[] | null>(initialData.results);
   const [loadingError] = useState<string | null>(initialData.error);
   
-  // ⭐ [수정 핵심 2]: 클라이언트 로드 상태는, results가 초기값(null)이 아닐 때만 true가 되도록 수정합니다.
-  // 이 방식은 Hydration Mismatch를 유발했던 이전의 isClientLoaded 상태 변수를 대체합니다.
-  const isDataLoaded = results !== null || loadingError !== null;
-  const [isClientLoaded, setIsClientLoaded] = useState(false);
+  // isDataLoaded를 사용하여 로딩 상태를 판단합니다.
+  // 서버 렌더링 중이 아니고 (클라이언트 환경이고), 데이터나 오류가 있을 때 true입니다.
+  const isDataLoaded = results !== null || loadingError !== null || !initialData.isInitialSSR;
 
-  // ⭐ [수정 핵심]: isClientLoaded가 true가 될 때까지 '결과 분석 중' 화면을 유지합니다.
-  if (!isClientLoaded) {
-      // 서버와 클라이언트 모두 이 상태로 시작하므로 Hydration Mismatch가 발생하지 않습니다.
-      return (
-          <div className="min-h-screen flex items-center justify-center bg-gray-50">
-               <h2 className="text-2xl font-bold text-gray-700 animate-pulse">결과 분석 중...</h2>
-          </div>
-      );
-  }
-
-  // 데이터가 로드(성공 또는 실패)되지 않았을 때만 로딩 화면을 보여줍니다.
+  // ===================================================
+  // 조건부 렌더링 (Hydration Safe 로딩)
+  // ===================================================
+  
   if (!isDataLoaded) {
       return (
           <div className="min-h-screen flex items-center justify-center bg-gray-50">
-               {/* 이 로딩 화면은 SSR/CSR에서 모두 일치하므로 Hydration Safe합니다. */}
+               {/* SSR과 CSR이 모두 이 코드를 공유하므로 Hydration Safe합니다. */}
                <h2 className="text-2xl font-bold text-gray-700 animate-pulse">결과 분석 중...</h2>
           </div>
       );
@@ -125,7 +156,6 @@ export default function ResultPage() {
 
   // 이 시점에서는 results는 반드시 null이 아닙니다.
   if (!results) {
-      // (로직상 여기에 도달할 수 없지만, TypeScript 경고 방지 및 안전 장치)
       return <div className="min-h-screen flex items-center justify-center">오류 발생 (데이터 누락)</div>;
   }
 
@@ -161,14 +191,11 @@ export default function ResultPage() {
                 </div>
                 {/* 랩 이름 및 대학 정보는 API에 없으므로, 플레이스홀더 사용 */}
                 <p className="text-lg text-gray-800 font-semibold mb-3">
-                  {result.professor_name} 연구 분야 (연구실 및 대학 정보는 확인 필요)
+                  {result.professor_name} 연구 분야
                 </p>
                 <p className="text-gray-600 leading-relaxed">
                   {result.summary}
                 </p>
-                <button className="mt-4 text-sm font-bold text-gray-900 underline hover:text-blue-600">
-                    자세히 보기 →
-                </button>
               </div>
 
               {/* 오른쪽: 키워드 태그 (RnDcircle 스타일의 핵심!) */}

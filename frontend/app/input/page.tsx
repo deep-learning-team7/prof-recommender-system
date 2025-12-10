@@ -1,12 +1,10 @@
 'use client'; 
 
 import { useState } from "react";
-// Next.js 라우팅을 위해 useRouter를 가져옵니다.
 import { useRouter } from 'next/navigation'; 
-import Link from "next/link"; // 페이지 이동을 위해 Link를 유지합니다.
+// import Link from "next/link";
 
-// 환경 변수에서 API URL을 가져옵니다.
-// .env.local의 NEXT_PUBLIC_API_URL 값을 사용합니다.
+// 환경 변수에서 API URL을 가져옴
 const API_ENDPOINT = process.env.NEXT_PUBLIC_API_URL;
 
 // 관심사 태그 더미 데이터 (백엔드 카테고리명과 일치시켜야 함)
@@ -19,33 +17,44 @@ const categories = [
 ];
 
 // 라벨(Label)을 실제 백엔드 요청에 필요한 카테고리 코드(Name)로 변환하는 함수
-const getCategoryCode = (label: string) => {
+const getCategoryCode = (label: string | null): string | null => { // label이 null일 수 있으므로 타입 변경
+  // null이거나 카테고리를 찾을 수 없을 경우 빈 문자열 또는 에러 처리를 위해 null 반환도 고려할 수 있음
+  if (!label) return null; 
+  
   const found = categories.find(cat => cat.label === label);
-  return found ? found.name : categories[0].name; // 없으면 기본값으로 "cs.CV" 사용
+  return found ? found.name : null;
 }
 
 export default function InputPage() {
   const router = useRouter(); // 라우터 훅 사용을 선언
 
   // 상태 관리: UI에 보이는 'label'을 저장합니다.
-  const [selectedLabel, setSelectedLabel] = useState(categories[0].label);
+  const [selectedLabel, setSelectedLabel] = useState<string | null>(null);
   const [cvText, setCvText] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // API 요청 핸들러
   const handleAnalyze = async () => {
+
+    console.log("API 호출 시작. Endpoint:", API_ENDPOINT);
+
     if (!API_ENDPOINT) {
       setError("❌ 환경 변수 (NEXT_PUBLIC_API_URL)가 설정되지 않았습니다.");
       return;
     }
+
+    if (!selectedLabel) {
+        alert("관심 연구 분야를 먼저 선택해주세요.");
+        return;
+    }
+
     if (!cvText.trim()) {
       alert("이력서 내용을 입력해주세요.");
       return;
     }
 
     const controller = new AbortController();
-    // 300,000ms는 5분입니다. (3분 소요되므로 충분히 넉넉합니다.)
     const timeoutDuration = 300000; 
     const timeoutId = setTimeout(() => controller.abort(), timeoutDuration);
 
@@ -77,20 +86,18 @@ export default function InputPage() {
 
       const data = await response.json();
       
-      // 최종 결과 데이터를 로컬 스토리지에 저장 (URL 길이 제한 회피)
       const resultDataString = JSON.stringify(data.results);
       localStorage.setItem('recommendationResults', resultDataString); 
 
       console.log("🔥 API 호출 성공, 결과 로컬 스토리지에 저장.");
 
-      // 결과 페이지로 이동 (로컬 스토리지를 읽어옴)
       router.push(`/result`);
       
     } catch (err) {
-      // ⭐ [수정 핵심]: 타임아웃 오류(AbortError)와 일반 오류 분리 처리
+      // 타임아웃 오류(AbortError)와 일반 오류 분리 처리
       if (err && typeof err === 'object' && 'name' in err && err.name === 'AbortError') {
         // fetch가 타임아웃으로 인해 중단되었을 때의 처리
-        setError(`⏰ 분석 시간이 ${timeoutDuration / 60000}분을 초과하여 연결이 종료되었습니다. 코랩 런타임을 확인하세요.`);
+        setError(`분석 시간이 ${timeoutDuration / 60000}분을 초과하여 연결이 종료되었습니다. 코랩 런타임을 확인하세요.`);
       } else {
         // 일반 네트워크 오류, JSON 파싱 오류, 4xx/5xx 상태 코드 오류 등
         const errorMessage = err instanceof Error ? err.message : "알 수 없는 오류 발생";
@@ -137,17 +144,21 @@ export default function InputPage() {
           <textarea 
             className="w-full h-64 p-6 bg-gray-100 rounded-3xl border-0 focus:ring-2 focus:ring-gray-300 resize-none text-gray-700 text-lg outline-none mb-8"
             placeholder="여기에 이력서 내용을 붙여넣거나 간단히 작성해주세요..."
+            value={cvText}
+            onChange={(e) => setCvText(e.target.value)}
           ></textarea>
         </section>
         
         {/* 분석 시작 버튼 */}
         <div className="text-center">
-          {/* Link를 클릭하면 Next.js가 자동으로 loading.tsx를 보여줍니다 */}
-          <Link href="/result">
-            <button className="bg-black text-white text-xl font-bold px-12 py-4 rounded-full hover:bg-gray-800 transition-all w-full md:w-auto">
-              AI 분석 및 추천받기
-            </button>
-          </Link>
+          {/* Link 제거하고, onClick 이벤트로 handleAnalyze 연결 */}
+          <button 
+            onClick={handleAnalyze} // handleAnalyze 함수를 직접 실행
+            className="bg-black text-white text-xl font-bold px-12 py-4 rounded-full hover:bg-gray-800 transition-all w-full md:w-auto"
+            disabled={isLoading} // 로딩 중에는 버튼 비활성화
+          >
+            {isLoading ? '분석 중...' : 'AI 분석 및 추천받기'}
+          </button>
         </div>
       </div>
     </div>
